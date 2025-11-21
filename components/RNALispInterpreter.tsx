@@ -31,7 +31,7 @@ AUG CAU AUG GGAACC GCCACC GUA GUA`);
     // Structural
     ACG: 'ATOM', GGA: 'VAR', AUG: 'LPAREN', GUA: 'RPAREN',
     UAG: 'LSTRING', GAU: 'RSTRING', AGA: 'DEF',
-    CAA: 'LAMBDA', CAC: 'NIL',
+    CAA: 'LAMBDA', GAC: 'NIL',
     // IO
     CAU: 'PRINT', AUC: 'READ'
   };
@@ -561,7 +561,7 @@ AUG CAU AUG CUU CUACCC GCCGCC GUA GUA`
                         <div><code className="bg-blue-100 px-1 rounded">GGA</code> = Variable prefix</div>
                         <div><code className="bg-blue-100 px-1 rounded">UAG</code> = &lt;&lt; (string start)</div>
                         <div><code className="bg-blue-100 px-1 rounded">GAU</code> = &gt;&gt; (string end)</div>
-                        <div><code className="bg-blue-100 px-1 rounded">CAC</code> = NIL</div>
+                        <div><code className="bg-blue-100 px-1 rounded">GAC</code> = NIL</div>
                       </div>
                     </div>
 
