@@ -2,11 +2,13 @@
   "name": "rna-lisp-interpreter",
   "version": "1.0.0",
   "description": "RNA-based esoteric programming language interpreter",
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "rna": "node bin/rna-lisp.ts"
   },
   "dependencies": {
     "next": "^14.0.0",

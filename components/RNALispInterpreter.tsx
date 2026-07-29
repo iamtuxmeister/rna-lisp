@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Play, Book, AlertCircle, CheckCircle } from 'lucide-react';
+import { run } from '@/lib/rna-lisp';
 
 const RNALispInterpreter = () => {
   const [code, setCode] = useState(`AUG AGA GGAACC
@@ -13,381 +14,11 @@ AUG CAU AUG GGAACC GCCACC GUA GUA`);
   const [output, setOutput] = useState('');
   const [error, setError] = useState('');
 
-  const CODONS: Record<string, string> = {
-    // Arithmetic
-    UUC: 'ADD', GUC: 'DEC', CUC: 'DIV', CUG: 'INC',
-    CUA: 'MOD', CUU: 'MUL', UUG: 'SUB',
-    // Boolean
-    UUA: 'FALSE', UUU: 'NOT', AAU: 'TRUE',
-    // Comparison
-    AAA: 'EQU', CAC: 'GE', UCC: 'GT', GUG: 'LE',
-    UCU: 'LT', UCA: 'LTE', UAU: 'NE',
-    // List
-    GUU: 'CAR', AUU: 'CDR', UGU: 'CONS',
-    // Digits
-    CCU: '0', CCC: '1', CCA: '2', CCG: '3',
-    GCU: '4', GCC: '5', GCA: '6', GCG: '7',
-    ACU: '8', ACC: '9',
-    // Structural
-    ACG: 'ATOM', GGA: 'VAR', AUG: 'LPAREN', GUA: 'RPAREN',
-    UAG: 'LSTRING', GAU: 'RSTRING', AGA: 'DEF',
-    CAA: 'LAMBDA', GAC: 'NIL',
-    // IO
-    CAU: 'PRINT', AUC: 'READ'
-  };
-
-  const tokenize = (input: string) => {
-    const tokens: any[] = [];
-    const chars = input.replace(/\s+/g, ' ').trim();
-    
-    let pos = 0;
-    while (pos < chars.length) {
-      if (chars[pos] === ' ') {
-        pos++;
-        continue;
-      }
-      
-      // Check for special multi-char tokens
-      if (chars.substr(pos, 3) === 'ACG' || chars.substr(pos, 3) === 'GGA') {
-        const prefix = chars.substr(pos, 3);
-        pos += 3;
-        let numStr = '';
-        while (pos < chars.length && chars[pos] !== ' ') {
-          numStr += chars[pos];
-          pos++;
-        }
-        tokens.push({ type: prefix === 'ACG' ? 'ATOM' : 'VAR', value: numStr });
-        continue;
-      }
-      
-      // Check for string literals
-      if (chars.substr(pos, 3) === 'UAG') {
-        pos += 3;
-        let content = '';
-        while (pos < chars.length && chars.substr(pos, 3) !== 'GAU') {
-          if (chars[pos] === ' ') {
-            pos++;
-            continue;
-          }
-          let digitSeq = '';
-          while (pos < chars.length && chars[pos] !== ' ' && chars.substr(pos, 3) !== 'GAU') {
-            digitSeq += chars[pos];
-            pos++;
-          }
-          if (digitSeq) {
-            const codePoint = parseCodonNumber(digitSeq);
-            content += String.fromCharCode(codePoint);
-          }
-        }
-        pos += 3; // skip GAU
-        tokens.push({ type: 'STRING', value: content });
-        continue;
-      }
-      
-      // Check for number literals (consecutive digit codons)
-      let numStr = '';
-      let startPos = pos;
-      while (pos < chars.length && chars[pos] !== ' ') {
-        const codon = chars.substr(pos, 3);
-        if (CODONS[codon] && /^\d$/.test(CODONS[codon])) {
-          numStr += CODONS[codon];
-          pos += 3;
-        } else {
-          break;
-        }
-      }
-      
-      if (numStr) {
-        tokens.push({ type: 'NUMBER', value: parseInt(numStr) });
-        continue;
-      }
-      
-      // Regular codon
-      const codon = chars.substr(pos, 3);
-      if (CODONS[codon]) {
-        tokens.push({ type: CODONS[codon] });
-        pos += 3;
-      } else {
-        throw new Error(`Unknown codon at position ${pos}: ${codon}`);
-      }
-    }
-    
-    return tokens;
-  };
-
-  const parseCodonNumber = (codonStr: string) => {
-    let result = '';
-    for (let i = 0; i < codonStr.length; i += 3) {
-      const codon = codonStr.substr(i, 3);
-      if (CODONS[codon] && /^\d$/.test(CODONS[codon])) {
-        result += CODONS[codon];
-      }
-    }
-    return parseInt(result);
-  };
-
-  const parse = (tokens: any[]) => {
-    let pos = 0;
-    
-    const parseExpr = (): any => {
-      if (pos >= tokens.length) throw new Error('Unexpected end of input');
-      
-      const token = tokens[pos];
-      
-      if (token.type === 'NUMBER') {
-        pos++;
-        return { type: 'number', value: token.value };
-      }
-      
-      if (token.type === 'STRING') {
-        pos++;
-        return { type: 'string', value: token.value };
-      }
-      
-      if (token.type === 'ATOM') {
-        pos++;
-        return { type: 'atom', value: token.value };
-      }
-      
-      if (token.type === 'VAR') {
-        pos++;
-        return { type: 'var', name: token.value };
-      }
-      
-      if (token.type === 'TRUE') {
-        pos++;
-        return { type: 'boolean', value: true };
-      }
-      
-      if (token.type === 'FALSE') {
-        pos++;
-        return { type: 'boolean', value: false };
-      }
-      
-      if (token.type === 'NIL') {
-        pos++;
-        return { type: 'nil' };
-      }
-      
-      if (token.type === 'LPAREN') {
-        pos++;
-        const expr = [];
-        while (pos < tokens.length && tokens[pos].type !== 'RPAREN') {
-          expr.push(parseExpr());
-        }
-        if (pos >= tokens.length) throw new Error('Unclosed parenthesis');
-        pos++; // skip RPAREN
-        return { type: 'list', items: expr };
-      }
-      
-      // Handle standalone operators as symbols
-      if (['ADD', 'SUB', 'MUL', 'DIV', 'MOD', 'INC', 'DEC', 'EQU', 'LT', 'GT', 
-           'LE', 'GE', 'LTE', 'NE', 'NOT', 'CAR', 'CDR', 'CONS', 'PRINT', 'READ', 'DEF'].includes(token.type)) {
-        pos++;
-        return { type: 'symbol', name: token.type };
-      }
-      
-      throw new Error(`Unexpected token: ${JSON.stringify(token)}`);
-    };
-    
-    const result = [];
-    while (pos < tokens.length) {
-      result.push(parseExpr());
-    }
-    return result;
-  };
-
-  const evaluate = (ast: any[], env: Record<string, any> = {}) => {
-    const outputs: string[] = [];
-    
-    const evalExpr = (expr: any, localEnv: Record<string, any>): any => {
-      if (!expr) return null;
-      
-      if (expr.type === 'number') return expr.value;
-      if (expr.type === 'string') return expr.value;
-      if (expr.type === 'boolean') return expr.value;
-      if (expr.type === 'nil') return null;
-      if (expr.type === 'atom') return { atom: expr.value };
-      if (expr.type === 'symbol') return { symbol: expr.name };
-      
-      if (expr.type === 'var') {
-        if (!(expr.name in localEnv)) {
-          throw new Error(`Undefined variable: ${expr.name}`);
-        }
-        return localEnv[expr.name];
-      }
-      
-      if (expr.type === 'list') {
-        const items = expr.items;
-        if (items.length === 0) return null;
-        
-        const [first, ...args] = items;
-        
-        // DEF - define function
-        if (first.type === 'symbol' && first.name === 'DEF') {
-          const [varNode, ...clauses] = args;
-          if (varNode.type !== 'var') throw new Error('DEF requires variable name');
-          
-          const parsedClauses = clauses.map((clause: any) => {
-            if (clause.type !== 'list' || clause.items.length !== 2) {
-              throw new Error('Each clause must be ((pattern) body)');
-            }
-            const [patternList, body] = clause.items;
-            if (patternList.type !== 'list' || patternList.items.length === 0) {
-              throw new Error('Pattern must be a list');
-            }
-            return { pattern: patternList.items[0], body };
-          });
-          
-          localEnv[varNode.name] = { type: 'function', clauses: parsedClauses, env: localEnv };
-          return null;
-        }
-        
-        // Evaluate first element to get the operator/function
-        const firstVal = evalExpr(first, localEnv);
-        
-        // Handle operators
-        if (firstVal?.symbol) {
-          const op = firstVal.symbol;
-          
-          // Arithmetic operations
-          if (op === 'ADD') {
-            return args.reduce((acc: number, arg: any) => acc + evalExpr(arg, localEnv), 0);
-          }
-          if (op === 'SUB') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] - vals[1];
-          }
-          if (op === 'MUL') {
-            return args.reduce((acc: number, arg: any) => acc * evalExpr(arg, localEnv), 1);
-          }
-          if (op === 'DIV') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return Math.floor(vals[0] / vals[1]);
-          }
-          if (op === 'MOD') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] % vals[1];
-          }
-          if (op === 'INC') {
-            return evalExpr(args[0], localEnv) + 1;
-          }
-          if (op === 'DEC') {
-            return evalExpr(args[0], localEnv) - 1;
-          }
-          
-          // Comparison
-          if (op === 'EQU') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] === vals[1];
-          }
-          if (op === 'LT') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] < vals[1];
-          }
-          if (op === 'GT') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] > vals[1];
-          }
-          if (op === 'LE' || op === 'LTE') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] <= vals[1];
-          }
-          if (op === 'GE') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] >= vals[1];
-          }
-          if (op === 'NE') {
-            const vals = args.map((a: any) => evalExpr(a, localEnv));
-            return vals[0] !== vals[1];
-          }
-          
-          // Boolean
-          if (op === 'NOT') {
-            return !evalExpr(args[0], localEnv);
-          }
-          
-          // List operations
-          if (op === 'CONS') {
-            return { cons: [evalExpr(args[0], localEnv), evalExpr(args[1], localEnv)] };
-          }
-          if (op === 'CAR') {
-            const list = evalExpr(args[0], localEnv);
-            return list?.cons?.[0] ?? null;
-          }
-          if (op === 'CDR') {
-            const list = evalExpr(args[0], localEnv);
-            return list?.cons?.[1] ?? null;
-          }
-          
-          // IO
-          if (op === 'PRINT') {
-            const val = evalExpr(args[0], localEnv);
-            outputs.push(formatValue(val));
-            return val;
-          }
-        }
-        
-        // Function call
-        if (firstVal?.type === 'function') {
-          const argVals = args.map((a: any) => evalExpr(a, localEnv));
-          
-          // Try each clause
-          for (const clause of firstVal.clauses) {
-            const newEnv = { ...firstVal.env };
-            if (matchPattern(clause.pattern, argVals[0], newEnv)) {
-              return evalExpr(clause.body, newEnv);
-            }
-          }
-          
-          throw new Error('No matching clause');
-        }
-        
-        // Evaluate as list of expressions
-        return items.map((e: any) => evalExpr(e, localEnv));
-      }
-      
-      return expr;
-    };
-    
-    const matchPattern = (pattern: any, value: any, env: Record<string, any>) => {
-      if (pattern.type === 'number') {
-        return pattern.value === value;
-      }
-      if (pattern.type === 'atom') {
-        return pattern.value === value?.atom;
-      }
-      if (pattern.type === 'var') {
-        env[pattern.name] = value;
-        return true;
-      }
-      return false;
-    };
-    
-    const formatValue = (val: any): string => {
-      if (val === null) return 'nil';
-      if (typeof val === 'boolean') return val ? 'true' : 'false';
-      if (typeof val === 'number') return val.toString();
-      if (typeof val === 'string') return `"${val}"`;
-      if (val?.atom) return `:${val.atom}`;
-      if (val?.cons) return `(${formatValue(val.cons[0])} . ${formatValue(val.cons[1])})`;
-      return JSON.stringify(val);
-    };
-    
-    for (const expr of ast) {
-      evalExpr(expr, env);
-    }
-    
-    return outputs.join('\n');
-  };
-
   const runCode = () => {
     try {
       setError('');
       setOutput('');
-      const tokens = tokenize(code);
-      const ast = parse(tokens);
-      const result = evaluate(ast);
+      const result = run(code);
       setOutput(result || '(no output)');
     } catch (e: any) {
       setError(e.message);
@@ -407,7 +38,7 @@ AUG CAU AUG GGAACC GCCACC GUA GUA`
     {
       name: 'FizzBuzz Helper',
       code: `AUG AGA GGACCU
-  AUG AUG GGACCC GUA AUG AAA AUG CUA GGACCC CUACCC GUA CCU GUA GUA
+  AUG AUG GGACCC GUA AUG AAA AUG CUA GGACCC GCC GUA CCU GUA GUA
 GUA
 
 AUG CAU AUG GGACCU CCCGCC GUA GUA
@@ -415,8 +46,8 @@ AUG CAU AUG GGACCU CCCGCA GUA GUA`
     },
     {
       name: 'Simple Math',
-      code: `AUG CAU AUG UUC GCCACC CUACCC GUA GUA
-AUG CAU AUG CUU CUACCC GCCGCC GUA GUA`
+      code: `AUG CAU AUG UUC GCCACC CCGCCC GUA GUA
+AUG CAU AUG CUU CCGCCC GCCGCC GUA GUA`
     }
   ];
 
@@ -562,6 +193,7 @@ AUG CAU AUG CUU CUACCC GCCGCC GUA GUA`
                         <div><code className="bg-blue-100 px-1 rounded">UAG</code> = &lt;&lt; (string start)</div>
                         <div><code className="bg-blue-100 px-1 rounded">GAU</code> = &gt;&gt; (string end)</div>
                         <div><code className="bg-blue-100 px-1 rounded">GAC</code> = NIL</div>
+                        <div><code className="bg-blue-100 px-1 rounded">UAA</code> = STOP (ends a number/atom/var literal)</div>
                       </div>
                     </div>
 
